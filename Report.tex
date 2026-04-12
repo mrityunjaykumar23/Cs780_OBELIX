@@ -1,0 +1,266 @@
+\documentclass[11pt,oneside]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{amssymb}
+\usepackage[numbers]{natbib}
+
+\title{CS780 Capstone Project:\\OBELIX: the Warehouse Robot}
+
+\author{
+    FirstName $<$Middle Name if any$>$ LastName\\
+    roll no.\\
+    {\tt \{name\}@iitk.ac.in}\\
+    {Indian Institute of Technology Kanpur (IIT Kanpur)}
+}
+
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This project studies reinforcement learning for the OBELIX warehouse robot, whose task is to find a grey box, attach to it, and push it to the arena boundary under increasing partial observability. I started with tabular and value-based baselines, then moved to stacked and recurrent agents, and finally submitted a vectorized discrete Soft Actor-Critic (SAC) agent with twin critics and Random Network Distillation (RND) exploration. I also explored curriculum learning and wall-obstacle training. The final system learned partial box-finding and attachment behavior, but obstacle-aware navigation and stable pushing remained the main bottlenecks.
+\end{abstract}
+
+\section{Competition Result}
+\textbf{Codabench Username:} \_\_\_\_\_\_\_\_\_\_\_\\
+\textbf{Final leaderboard rank (Test Phase):} \_\_\_\_\_\_\_\_\_\_\_\\
+\textbf{Leaderboard rank -- Level 1 (static):} \_\_\_\_\_\_\_\_\_\_\_\\
+\textbf{Leaderboard rank -- Level 2 (blinking):} \_\_\_\_\_\_\_\_\_\_\_\\
+\textbf{Leaderboard rank -- Level 3 (moving + blinking):} \_\_\_\_\_\_\_\_\_\_\_\\
+\textbf{Demonstration video link:} \emph{to be inserted}
+
+\begin{table}[h]
+\centering
+\caption{Number of archived Codabench score snapshots available for each phase.}
+\begin{tabular}{lc}
+\toprule
+Phase & Number of submissions \\
+\midrule
+Phase 1 result archive & 7 \\
+Phase 2 result archive & 6 \\
+Phase 3 result archive & 4 \\
+Test phase result archive & 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Introduction and Problem Description}
+OBELIX is a warehouse-style robot control problem in which an agent must use a small binary sensor state to act in a continuous-looking environment. At every step, the robot receives an 18-dimensional observation derived from sonar and infrared-style signals and must choose one of five discrete actions: \texttt{L45}, \texttt{L22}, \texttt{FW}, \texttt{R22}, and \texttt{R45}. The goal is to locate the grey box, reach it, attach to it, and then push it to the arena boundary to successfully end the episode.
+
+Although the action space is simple, the task itself is difficult because the robot never observes the full environment directly. It must infer where the box is, how it is moving, and how to approach it using only limited local sensing. This makes the problem especially challenging when the agent loses sight of the box or has to navigate around obstacles with incomplete information.
+
+The environment becomes progressively harder across three difficulty levels. In Level 1 the box is static, so the task mainly tests search and alignment. In Level 2 the box blinks in and out of visibility, which introduces partial observability and makes it harder for the agent to track the target over time. In Level 3 the box both blinks and moves, so the agent must not only search but also react to motion and maintain control under uncertainty. Wall obstacles make the task even harder by forcing the robot to route through narrow openings instead of moving directly toward the target.
+
+The main objective of this project was to design and train an RL agent that could achieve high cumulative reward while remaining robust across these increasingly difficult settings. In practice, the wall-obstacle and difficulty-3 conditions turned out to be the most demanding, since they exposed weaknesses in memory, navigation, and long-horizon box control. For that reason, much of the project focused not just on improving reward, but on developing policies that behaved more reliably in the hardest cases.
+
+\section{Approach and Model Evolution}
+\subsection*{Baseline and early submissions}
+My initial work did not begin with a learned model. Before training any RL agent, I first tried a heuristic controller to understand how the robot behaves in the environment, how the sensors respond, and what kinds of motion patterns are needed to find and approach the box. This was useful for debugging the simulator and building intuition, but the heuristic policy was too brittle to solve the task reliably, especially once the box became partially visible or obstacles blocked the direct path.
+
+After that exploratory stage, I moved to simple value-based methods to establish trainable baselines and better understand the reward structure. The first archived Phase 1 submission used tabular Q-learning over the 18-bit observation space. This approach was straightforward to implement and served as a useful starting point, but it did not generalize well because the observation space was large, sparse, and only weakly informative about long-term outcomes. The second Phase 1 submission moved to a Neural Fitted Q-style multilayer perceptron (MLP) Q-network, which improved function approximation but still struggled with obstacle handling and the higher-difficulty settings. The third Phase 1 submission introduced a DQN/Double-DQN style learner with prioritized replay, mainly targeting better sample efficiency and more stable updates.
+
+\subsection*{Intermediate development}
+In Phase 2 I focused on difficulty 2, where blinking made the problem more clearly partially observable. I explored both actor-critic and value-based upgrades. The archived folder shows an A2C + LSTM model, a PPO/A2C-style recurrent actor-critic variant, and DDQN variants that used frame stacking and task-specific behavior adjustments. These experiments taught an important lesson: once the box is not consistently visible, methods that rely only on the current 18-bit observation tend to lose track of the target. Recurrent or stacked-state agents behaved more sensibly, but they were also harder to stabilize and tune.
+
+\subsection*{Later development and final strategy}
+For Level 3 I explored recurrent PPO-like training in \texttt{train\_arc\_lstm.py}, but eventually the final test-phase submission converged to a vectorized discrete SAC implementation packaged in the final submission folder. The final submitted agent was \texttt{submission/phase last submission/submission2/agent\_template.py} together with the checkpoint \texttt{sac\_vec.pth}. The rationale for switching to SAC was that parallel off-policy training could make better use of limited wall-clock time, especially with multiple environments running in parallel.
+
+\subsection*{Final model}
+The final model belongs to the discrete actor-critic family. More specifically, it is a vectorized discrete Soft Actor-Critic agent \cite{haarnoja2018soft} trained with two Q-networks, target critics, and an actor that outputs a categorical distribution over the five available actions. The policy network is a two-hidden-layer MLP with architecture $18 \rightarrow 256 \rightarrow 256 \rightarrow 5$, and the submitted \texttt{agent\_template.py} uses greedy action selection at evaluation time. The state representation in the final submitted agent is the raw 18-bit observation vector rather than a hand-crafted feature vector. Exploration during training comes from the maximum-entropy SAC objective together with an additional Random Network Distillation bonus \cite{burda2019exploration}. I also added a curriculum mode in the later training code so that one training run can progress from difficulty 0 to difficulty 2 and then to difficulty 3, while keeping wall obstacles enabled throughout the curriculum.
+
+Unlike some earlier LSTM/PPO experiments, the final SAC branch does not rely on reward shaping. That choice was intentional: I wanted the final evaluation-time behavior to remain aligned with the original environment reward and avoid a train-test mismatch caused by shaped rewards that are unavailable during testing.
+
+\section{Experiments and Implementation Details}
+All main training runs used the OBELIX simulator provided in the project repository. The episode length was typically 1000 steps, with longer development sweeps performed at 800 episodes and final candidate runs performed at 2000 episodes or more. The final SAC branch was trained on CPU using vectorized environments, since the available machine setup was CPU-dominant. In practice, an 800-episode SAC run with four parallel environments took roughly two hours, so full 2000-episode runs were effectively overnight jobs.
+
+The final training script, \texttt{train.py}, uses four parallel environments, a replay buffer of size 300,000, a discrete SAC update with twin critics and soft target updates, and an RND exploration bonus. The best local hyperparameters after the short sweep were close to the tuned defaults built into the current version of \texttt{train.py}. I used fixed evaluation settings (\texttt{runs=10}, \texttt{max\_steps=1000}) through \texttt{evaluate.py} to keep comparisons fair and reduce overfitting to one lucky seed.
+
+\begin{table}[h]
+\centering
+\caption{Representative hyperparameters for the final SAC branch.}
+\begin{tabular}{ll}
+\toprule
+Component & Value \\
+\midrule
+Algorithm & Discrete SAC + RND \\
+Observation size & 18 binary sensor values \\
+Action space & 5 discrete actions \\
+Number of parallel environments & 4 \\
+Episodes & 2000 (typical final run) \\
+Max steps per episode & 1000 \\
+Learning rate & $1 \times 10^{-4}$ \\
+Discount factor $\gamma$ & 0.995 \\
+Batch size & 128 \\
+Replay start threshold & 12000 transitions \\
+Updates per step & 1 \\
+Replay buffer size & 300000 \\
+Target update coefficient $\tau$ & 0.005 \\
+RND coefficient $\beta$ & 0.02 \\
+Curriculum stages & $0 \rightarrow 2 \rightarrow 3$ \\
+Wall obstacles in curriculum & True for all stages \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+I also ran a small automated tuning sweep using \texttt{tune.py}. The sweep varied learning rate, RND strength, replay warmup, update frequency, and batch size. The resulting differences were relatively small, which was itself informative: after a point, better hyperparameters alone were not enough to solve the core difficulty-3 wall-navigation issue.
+
+\section{Results}
+The Codabench archive is organized by phase, and each submission folder contains a \texttt{scores.txt} file. I therefore report the results phase by phase rather than mixing all submissions into a single table. Phase 1 and Phase 2 score files each contain four values: cumulative reward with wall, its standard deviation, cumulative reward without wall, and its standard deviation. Phase 3 adds a weighted cumulative reward, and the test phase reports separate wall/no-wall scores for difficulties 0, 2, and 3.
+
+\begin{table}[h]
+\centering
+\caption{Phase 1 results from \texttt{result\_codabench/phase 1 result/scoring\_result(*)/scores.txt}.}
+\label{tab:phase1results}
+\begin{tabular}{lrrrr}
+\toprule
+Submission & With wall & Std (wall) & No wall & Std (no wall) \\
+\midrule
+Submission 1 & -176593.3 & 43899.098 & -140725.8 & 58799.716 \\
+Submission 2 & -20098.7 & 8695.291 & -32209.6 & 4457.169 \\
+Submission 3 & -211573.5 & 183036.594 & -23666.7 & 16820.589 \\
+Submission 4 & -17128.1 & 10768.341 & -31180.9 & 6715.382 \\
+Submission 5 & -1981.2 & 7.692 & -1990.9 & 10.445 \\
+Submission 6 & -1976.0 & 36.436 & -1992.7 & 8.615 \\
+Submission 7 & -1991.0 & 6.971 & -1992.8 & 8.495 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Phase 2 results from \texttt{result\_codabench/phase\_2\_result/scoring\_result(*)/scores.txt}.}
+\label{tab:phase2results}
+\begin{tabular}{lrrrr}
+\toprule
+Submission & With wall & Std (wall) & No wall & Std (no wall) \\
+\midrule
+Submission 1 & -277684.8 & 180516.548 & -1172.7 & 1618.059 \\
+Submission 2 & -1985.9 & 11.406 & -1989.5 & 11.307 \\
+Submission 3 & -392743.7 & 6618.110 & -24170.2 & 35133.321 \\
+Submission 4 & -1981.2 & 7.692 & -1990.9 & 10.445 \\
+Submission 5 & -1989.7 & 9.067 & -1989.1 & 11.734 \\
+Submission 6 & -1986.7 & 9.360 & -1988.7 & 12.522 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Phase 3 results from \texttt{result\_codabench/phase\_3\_result/scoring\_result(*)/scores.txt}.}
+\label{tab:phase3results}
+\begin{tabular}{lrrrrr}
+\toprule
+Submission & With wall & Std (wall) & No wall & Std (no wall) & Weighted \\
+\midrule
+Submission 1 & -358068.3 & 111122.677 & -356793.3 & 73859.828 & -357558.3 \\
+Submission 2 & -311805.8 & 156964.823 & 1842.2 & 263.120 & -186346.6 \\
+Submission 3 & -8741.8 & 7834.222 & -1481.0 & 1197.066 & -5837.480 \\
+Submission 4 & -49989.2 & 42555.238 & -5340.8 & 19568.516 & -32129.840 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Test-phase wall-condition results from \texttt{result\_codabench/test\_phase\_result/scoring\_result(*)/scores.txt}.}
+\label{tab:testphasewall}
+\begin{tabular}{lrrrr}
+\toprule
+Submission & L0 wall & L2 wall & L3 wall & Weighted \\
+\midrule
+Submission 1 & -10161.2 & -7551.8 & -8881.8 & -6136.640 \\
+Submission 2 & -1991.6 & -1988.5 & -1537.2 & -1834.660 \\
+Submission 3 & -1988.5 & -1987.5 & -1535.9 & -1832.807 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Test-phase no-wall results from \texttt{result\_codabench/test\_phase\_result/scoring\_result(*)/scores.txt}.}
+\label{tab:testphasenowall}
+\begin{tabular}{lrrrr}
+\toprule
+Submission & L0 no wall & L2 no wall & L3 no wall & Mean no wall \\
+\midrule
+Submission 1 & -2325.8 & -2325.8 & -1481.0 & -2044.200 \\
+Submission 2 & -1996.5 & -1989.4 & -1498.1 & -1828.000 \\
+Submission 3 & -1994.2 & -1989.2 & -1494.8 & -1826.067 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+These phase-wise tables show the overall trajectory of the project more clearly than a single merged summary. Phase 1 scores vary dramatically, which matches the early exploratory stage where I moved from tabular Q-learning toward neural value-function methods. By Phase 2, most submissions clustered near the same negative reward range, suggesting that simply switching among feedforward agents did not address the underlying partial-observability challenge. Phase 3 is where the biggest qualitative change appears: Submission 3 dramatically outperformed the earlier Phase 3 attempts and became the strongest pre-test candidate.
+
+The test-phase tables confirm the same pattern. Submission 3 is the strongest stored final candidate with weighted cumulative reward -1832.807, only slightly better than Submission 2 but substantially better than Submission 1. The most difficult setting remained difficulty 3 with wall obstacles, where even the best submission still had clearly negative return. That matches the qualitative evaluation videos, where the agent often finds or attaches to the box but still fails to navigate around the wall and push the box to the goal reliably.
+
+For local evaluation, the strongest no-wall result in \texttt{leaderboard.csv} for difficulty 3 reached a mean score of 1121.7, indicating that the agent could sometimes solve the moving-blinking setting without walls. In contrast, the wall-obstacle setting remained much harder: the best local wall-obstacle evaluation I obtained for the final SAC branch was around mean score -653.2 over 10 runs. This gap is consistent with the visual behavior observed during evaluation videos, where the agent often found or attached to the box but failed to route it reliably through the obstacle geometry.
+
+\begin{table}[h]
+\centering
+\caption{Representative local evaluation results from the development process.}
+\begin{tabular}{lll}
+\toprule
+Setting & Mean score & Observation \\
+\midrule
+Difficulty 3, no wall & 1121.7 & Occasional successful completion \\
+Difficulty 3, wall obstacle & -653.2 & Partial success, unstable pushing \\
+Difficulty 2, no wall & about -989 & Generally failed to capitalize on blinking tracking \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Overall, the final SAC model performed best among the archived submissions because it combined better sample throughput, stable off-policy learning, and stronger exploration than the earlier baselines. However, the final gains were much more pronounced on easier settings than on the full wall-obstacle task, which suggests that state representation and memory limitations were more important than purely optimizer-level tuning.
+
+\section{Error Analysis and Discussion}
+The most common failure modes were strongly tied to partial observability. In Level 1, failures mostly came from poor alignment or ineffective pushing even after the box was found. In Level 2, blinking caused the agent to lose track of the target and drift into reactive local motion. In Level 3, movement plus blinking made interception difficult: the policy often chased the current visible location instead of predicting where the box would be a few steps later.
+
+With walls enabled, the failure pattern became much more obvious. The agent frequently hovered near the wall opening, rotated repeatedly, and behaved reactively rather than following a stable route around the obstacle. The evaluation video shows exactly this pattern: the robot can often search, approach, and sometimes attach to the box, but it struggles to convert attachment into a reliable push-to-boundary strategy. In other words, the agent has learned meaningful subskills (search and attach) but not a fully obstacle-aware end-to-end solution.
+
+Another important observation is that some reward can be accumulated without truly solving the intended task. For example, approaching the box, maintaining contact briefly, or avoiding certain catastrophic events can improve return even if the box is not pushed to the boundary. This is a useful edge case to highlight because it explains why occasional positive-looking behaviors in the video do not always correspond to consistent task completion.
+
+The main limitations of the final system are therefore: (i) lack of explicit memory in the final submitted SAC policy, (ii) weak route planning around walls, and (iii) unstable long-horizon control after box attachment. If I had more time, the next changes I would prioritize are frame stacking or recurrent SAC, explicit evaluation-based checkpoint selection, and a cleaner decay schedule for the RND bonus.
+
+\section{Conclusion}
+This project showed that the OBELIX task is deceptively difficult once blinking, box motion, and wall obstacles are introduced. Starting from tabular Q-learning and progressively moving toward neural value-based, recurrent actor-critic, and finally discrete SAC agents gave a useful view of how algorithm choice interacts with partial observability. The final SAC submission improved substantially over the earliest baselines and showed meaningful learning of search and attachment behavior, but still lacked robust obstacle-aware planning and stable box pushing in the hardest setting.
+
+The most important lesson from this project is that partially observable robotic tasks often fail for representational reasons rather than only optimization reasons. Better hyperparameters helped, but only up to a point. Memory, temporal abstraction, and robust navigation matter more once the sensor stream stops being fully informative. Future work could explore recurrent off-policy agents, explicit motion prediction, richer behavior decomposition, or extensions toward more realistic pushing physics and multi-object settings.
+
+\section*{LLM Usage Declaration}
+\begin{itemize}[leftmargin=*]
+\item \textbf{Which Large Language Model (LLM) did you use?}\\
+OpenAI Codex / GPT-family assistance was used in a limited support role for ideation, code debugging, and report drafting.
+
+\item \textbf{In which part did you use the LLM, and how did it help you?}
+
+\begin{center}
+\begin{tabular}{l|l|p{7.4cm}}
+\toprule
+Part & Used LLM? & Purpose of Using LLM \\
+\midrule
+Understanding concepts & Yes & Clarifying algorithm choices such as SAC, PPO, replay-buffer tuning, and curriculum design. \\
+Ideation / brainstorming & Yes & Comparing alternative agent designs and deciding what to try next. \\
+Debugging small code snippets & Yes & Fixing loader mismatches, evaluation rendering, and training-script issues. \\
+Plotting / visualization code & No & Not used for final plotting in this submission. \\
+Grammar / writing style & Yes & Improving clarity, grammar, and report flow. \\
+Report structure / section ideas & Yes & Converting project notes into a clean report structure. \\
+Other (LaTeX drafting) & Yes & Helping convert project findings into LaTeX text. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\item \textbf{Did you refer to any other sources or websites apart from the LLM and lecture slides?}\\
+Yes. I referred to the original OBELIX paper, the provided project repository/documentation, and standard RL references for SAC and RND.
+
+\item \textbf{Apart from any LLM usage, what was your own contribution?}\\
+I implemented and trained multiple agent families, organized and archived submissions across phases, tuned and compared models on local and Codabench-style evaluations, analyzed failure cases from scores and videos, and selected the final test-phase SAC submission. The core experimentation decisions, code execution, interpretation of results, and final model selection were my own.
+\end{itemize}
+
+\bibliographystyle{ieeetr}
+\bibliography{references}
+
+\end{document}

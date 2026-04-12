@@ -50,6 +50,7 @@ def evaluate_agent(
     wall_obstacles: bool,
     difficulty: int,
     box_speed: int,
+    render: bool,
 ) -> EvalResult:
     scores: List[float] = []
 
@@ -72,7 +73,7 @@ def evaluate_agent(
         done = False
         while not done:
             action = agent_policy(obs, rng)
-            obs, reward, done = env.step(action, render=False)
+            obs, reward, done = env.step(action, render=render)
             total += float(reward)
 
         scores.append(total)
@@ -155,6 +156,7 @@ def main() -> None:
         default=2,
         help="speed of moving box (pixels/step) for difficulty>=3",
     )
+    parser.add_argument("--render", action="store_true")
 
     parser.add_argument("--leaderboard_csv", type=str, default="leaderboard.csv")
 
@@ -180,6 +182,7 @@ def main() -> None:
         wall_obstacles=args.wall_obstacles,
         difficulty=args.difficulty,
         box_speed=args.box_speed,
+        render=args.render,
     )
 
     print(

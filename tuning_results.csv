@@ -1,0 +1,4 @@
+timestamp,trial,mean,std,checkpoint,lr,rnd_beta,batch,replay_start,updates_per_step,gamma
+2026-04-12T03:40:44,1,-656.1,879.9,C:\Users\mrity\OneDrive\Desktop\CS780-OBELIX\tuning_runs\trial_01\sac_vec.pth,5e-05,0.01,128,8000,2,0.99
+2026-04-12T05:42:44,2,-653.2,881.275,C:\Users\mrity\OneDrive\Desktop\CS780-OBELIX\tuning_runs\trial_02\sac_vec.pth,3e-05,0.005,128,8000,2,0.99
+2026-04-12T07:47:53,3,-663.6,882.758,C:\Users\mrity\OneDrive\Desktop\CS780-OBELIX\tuning_runs\trial_03\sac_vec.pth,5e-05,0.01,128,20000,2,0.995

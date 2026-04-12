@@ -1,96 +1,217 @@
-# Simulating OBELIX: A Behaviour-based Robot
+# OBELIX Reinforcement Learning Project
 
-![Teaser image](./OBELIX.png)
-**Picture:** *The figure shows the OBELIX robot examining a box, taken from the paper ["Automatic Programming of Behaviour-based Robots using Reinforcement Learning"](https://cdn.aaai.org/AAAI/1991/AAAI91-120.pdf)*
+![OBELIX environment](./OBELIX.png)
 
+This repository contains a reinforcement learning project built around the OBELIX robot simulation. The goal is to train an agent that can navigate the arena, find the box, attach to it, and push it to the boundary while handling progressively harder environment settings.
 
-This repo consists of the code for simulating the OBELIX robot, as described in the paper ["Automatic Programming of Behaviour-based Robots using Reinforcement Learning"](https://cdn.aaai.org/AAAI/1991/AAAI91-120.pdf) by Sridhar Mahadevan and Jonathan Connell. The code is written in Python 3.7 and uses the [OpenCV](https://docs.opencv.org/4.x/) library for the GUI.
+The project includes:
 
-Some of this codebase is adapted from: https://github.com/iabhinavjoshi/OBELIX
+- the OBELIX simulator
+- a rebuilt training pipeline based on discrete Soft Actor-Critic (SAC)
+- Random Network Distillation (RND) for exploration
+- curriculum learning across multiple difficulty levels
+- evaluation scripts for local testing and Codabench-style submission
 
-*This repo is used for practicing RL algorithms covered during the NPTEL's course [Reinforcement Learning](https://onlinecourses.nptel.ac.in/noc19_cs55/preview) 2023.*
+## Final Project Status
 
-## Manual Gameplay
+This repository now represents the final consolidated version of the project rather than the original assignment starter state.
 
-The game can be played manually by executing the `manual_play.py` file. The robot is controlled by the user using the keyboard. The following keys are used to control the robot:
+The current main implementation is centered around:
 
-| Key | Action |
-| --- | --- |
-| `w` | Move forward |
-| `a` | Turn left (45 degrees) |
-| `q` | Turn left (22.5 degrees) |
-| `e` | Turn right (22.5 degrees) |
-| `d` | Turn right (45 degrees) |
+- `train_rebuilt.py` as the final training pipeline
+- `agent_template.py` as the final inference policy wrapper
+- `sac_vec.pth` as the trained actor used for evaluation and submission
 
-## Automatic Gameplay
+Before reaching this version, multiple approaches were tested and stored for reference inside the `submission/` folder. Those archived experiments include earlier submissions based on methods such as Q-learning, NFQ, DQN variants, A2C, PPO, DDQN, and intermediate training scripts from different project phases.
 
-The robot can be controlled automatically using the reinforcement learning algorithm described in the paper. The algorithm is implemented in the `robot.py` file. The algorithm is run by executing the `robot.py` file. The following command can be used to run the algorithm:
+## Project Overview
 
-```python 
-import argparse
-import cv2
+The environment is inspired by the behaviour-based robot setting described in the paper *Automatic Programming of Behaviour-based Robots using Reinforcement Learning* by Sridhar Mahadevan and Jonathan Connell.
 
-import numpy as np
+In this implementation:
 
-from obelix import OBELIX
+- the robot receives an 18-dimensional observation vector
+- the available actions are `L45`, `L22`, `FW`, `R22`, and `R45`
+- an episode is considered successful when the robot attaches to the box and the attached box reaches the arena boundary
+- training is performed with parallel environment workers to speed up data collection
 
+## Main Features
 
-bot = OBELIX(scaling_factor=5)
-move_choice = ['L45', 'L22', 'FW', 'R22', 'R45']
-user_input_choice = [ord("q"), ord("a"), ord("w"), ord("d"), ord("e")]
-bot.render_frame()
-episode_reward = 0
-for step in range(1, 2000):
-    random_step = np.random.choice(user_input_choice, 1, p=[0.05, 0.1, 0.7, 0.1, 0.05])[0]
-    # # random_step = np.random.choice(user_input_choice, 1, p=[0.2, 0.2, 0.2, 0.2, 0.2])[0]
-    if x in user_input_choice:
-        x = move_choice[user_input_choice.index(x)]
-        sensor_feedback, reward, done = bot.step(x)
-        episode_reward += reward
-        print(step, sensor_feedback, episode_reward)
+- Discrete SAC agent with twin critics
+- RND-based intrinsic reward to encourage exploration
+- curriculum training over difficulty levels `0`, `2`, and `3`
+- multiprocessing-based vectorized environment rollout
+- evaluation utilities for both local experiments and benchmark submission
+- pretrained actor weights for direct policy inference
+
+## Repository Structure
+
+- `obelix.py`: core environment implementation
+- `manual_play.py`: manual control of the robot
+- `train_rebuilt.py`: rebuilt training script for the SAC + RND agent
+- `evaluate.py`: local evaluation script for a policy file
+- `evaluate_on_codabench.py`: evaluation script for benchmark-style submissions
+- `agent_template.py`: inference policy that loads trained weights from `sac_vec.pth`
+- `compute_observation_states.py`: utility for inspecting observed states
+- `sac_vec.pth`: trained actor weights
+- `best_sac_vec.pth`: saved best-performing actor snapshot
+- `leaderboard.csv`: logged local evaluation results
+- `submission/`: archived experimental submissions from earlier project phases
+- `result_codabench/`: stored Codabench evaluation outputs from multiple submission rounds
+- `Report.tex`: project report source
+
+## Environment and Task
+
+The agent operates in a 2D arena with optional wall obstacles and different box behaviors:
+
+- Difficulty `0`: static box
+- Difficulty `2`: blinking / appearing-disappearing box
+- Difficulty `3`: moving and blinking box
+
+The objective is not only to reach the box, but to complete the full box-delivery behavior reliably under these settings.
+
+## Installation
+
+Create and activate a virtual environment, then install the dependencies:
+
+```bash
+pip install -r requirements.txt
 ```
 
-## Scope of Improvement
+For training and running the provided neural policy, PyTorch is also required:
 
-In the current implementation, the push feature explained in the paper is not implemented properly and the current push is more of an attach feature i.e. once the robot finds the box and gets attached to it, the box sticks to the robot and moves along with it. 
+```bash
+pip install torch
+```
 
-## Scoring + Evaluation (Leaderboard)
+## How to Run
 
-The environment now supports a simple, reproducible scoring setup:
+### Manual Play
 
-- **Success condition:** once the robot attaches to the box, the episode ends when the **attached box touches the boundary** (terminal bonus).
-- **Evaluation:** run the agent for a fixed number of steps, repeat for multiple random seeds, and report the mean/std score.
+You can control the robot manually with:
 
-### Submission Template
+```bash
+python manual_play.py
+```
 
-Edit [agent_template.py](agent_template.py) and implement:
+Controls:
+
+- `w`: move forward
+- `a`: turn left by 45 degrees
+- `q`: turn left by 22.5 degrees
+- `d`: turn right by 45 degrees
+- `e`: turn right by 22.5 degrees
+
+### Train the Agent
+
+Run training with:
+
+```bash
+python train_rebuilt.py --obelix_py obelix.py
+```
+
+Example with explicit settings:
+
+```bash
+python train_rebuilt.py --obelix_py obelix.py --episodes 2000 --num_envs 4 --max_steps 1000 --out sac_vec.pth
+```
+
+The training script supports:
+
+- curriculum learning
+- configurable difficulty and box speed
+- parallel rollout workers
+- loading pretrained actor weights
+- saving the best and final actor checkpoints
+
+### Evaluate a Policy Locally
+
+To evaluate the provided policy template:
+
+```bash
+python evaluate.py --agent_file agent_template.py --runs 10 --seed 0 --max_steps 1000 --wall_obstacles
+```
+
+This appends a result row to `leaderboard.csv`.
+
+### Benchmark / Submission Evaluation
+
+For benchmark-style evaluation, use:
+
+```bash
+python evaluate_on_codabench.py <input_dir> <output_dir>
+```
+
+The submission must provide a Python file defining:
 
 ```python
 def policy(obs, rng) -> str:
     ...
 ```
 
-Valid actions are: `L45`, `L22`, `FW`, `R22`, `R45`.
+## Training Method
 
-### Running Evaluation
+The training pipeline in `train_rebuilt.py` combines several ideas:
 
-Example (10 runs, averaged):
+- a discrete SAC policy for action selection
+- twin Q-networks for more stable value estimation
+- RND intrinsic reward to improve exploration
+- curriculum scheduling so the agent first learns on easier scenarios before harder ones
+- vectorized rollout collection using subprocess workers
 
-```bash
-python evaluate.py --agent_file agent_template.py --runs 10 --seed 0 --max_steps 1000 --wall_obstacles
-```
+This setup is designed to improve learning stability and sample efficiency in the OBELIX environment.
 
-Difficulty knobs:
+## Policy Inference
 
-- `--difficulty 0`: static box
-- `--difficulty 2`: blinking / appearing-disappearing box
-- `--difficulty 3`: moving + blinking box
-- `--box_speed N`: moving box speed (for `--difficulty >= 3`)
+`agent_template.py` loads the trained actor weights from `sac_vec.pth` and performs greedy action selection on CPU. This makes it suitable for evaluation and submission settings where a lightweight inference-only policy is needed.
 
-This appends a row to `leaderboard.csv`.
+## Outputs
+
+During experiments, the repository may produce or update:
+
+- `sac_vec.pth`: final saved actor weights
+- `best_sac_vec.pth`: best actor checkpoint during training
+- `leaderboard.csv`: local evaluation history
+- additional files inside `submission/` or `result_codabench/`
+
+## Experiment History
+
+The project was developed iteratively. Instead of keeping only the final model, this repository also preserves earlier submission attempts and phase-wise experiments.
+
+The `submission/` folder contains archived work from multiple stages, including:
+
+- phase 1 submissions
+- phase 2 submissions
+- phase 3 submissions
+- final submission variants
+
+These folders document the trial-and-error process followed before arriving at the current SAC + RND based final version.
+
+## Codabench Results
+
+The `result_codabench/` folder stores benchmark outputs collected from different evaluation rounds, including:
+
+- `test_phase_result`
+- `phase 1 result`
+- `phase_2_result`
+- `phase_3_result`
+
+These files show the progression of the project across different submissions. In the archived `phase_3_result` runs, the recorded weighted cumulative rewards include:
+
+- `-357558.300`
+- `-186346.600`
+- `-5837.480`
+- `-32129.840`
+
+Among those stored phase 3 runs, the best recorded weighted cumulative reward is `-5837.480`, which indicates a substantial improvement over earlier attempts even though the task remains challenging.
+
+## Notes
+
+- The environment implementation is adapted from an existing OBELIX repository and extended for reinforcement learning experiments.
+- The current push behavior is closer to an attach-and-move mechanic than a fully realistic pushing interaction.
+- If you publish this repository, avoid committing local-only folders such as `venv/` and `__pycache__/`.
 
 ## References
 
 - [Automatic Programming of Behaviour-based Robots using Reinforcement Learning](https://cdn.aaai.org/AAAI/1991/AAAI91-120.pdf)
-- [OBELIX (repository)](https://github.com/iabhinavjoshi/OBELIX)
-
+- [Original OBELIX repository](https://github.com/iabhinavjoshi/OBELIX)

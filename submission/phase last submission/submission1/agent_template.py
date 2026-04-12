@@ -28,7 +28,7 @@ def _load_once():
     if _model is not None:
         return
 
-    path = Path(__file__).with_name("sac_vec.pth")
+    path = Path(__file__).with_name("weights.pth")
     sd = torch.load(path, map_location="cpu")
     if isinstance(sd, dict) and "state_dict" in sd:
         sd = sd["state_dict"]
